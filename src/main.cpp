@@ -41,13 +41,15 @@ int main(int argc, char** argv) {
     // }
     // std::cout << "\n\n\n" << std::endl;
     krzh19.applyMinQuorum();
-
-
+    // std::cout << krzh19.numSeats() << "\n\n";
+    // for(auto d : krzh19.districts()) {
+    //     std::cout << d.name_ << " " << d.seats_ << std::endl;
+    // }
     // min quorum
 
 
     // Oberzuteilung
-
+    krzh19.oberzuteilung();
 
     // Unterzuteilung
 

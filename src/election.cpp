@@ -86,3 +86,45 @@ void election::applyMinQuorum(){
     totalVotes_ = votes_.sum();
 }
 
+// determine the number of seats for each party; german because
+void election::oberzuteilung() {
+    Eigen::MatrixXd waehlerzahlen = votes_.cast<double>();
+    double wahlschluessel;
+
+    // iterate over districts, divide votes by number of seats
+    for(int i = 0; i < numDistricts_; ++i) {
+        waehlerzahlen.row(i) /= districts_[i].seats_;
+    }
+
+    Eigen::VectorXd waehlerzahlen_partei = waehlerzahlen.colwise().sum();
+    wahlschluessel = waehlerzahlen_partei.sum() / numSeats_;
+    Eigen::ArrayXd seats_party = waehlerzahlen_partei.array() / wahlschluessel;
+    seats_party = seats_party.round(); // round to nearest integer
+    
+
+    if(seats_party.sum() == numSeats_) { // rounding worked, number agrees with numSeats_
+        wahlschluessel = waehlerzahlen_partei.sum() / numSeats_;
+        seatDistr_ = std::vector<int>(seats_party.data(), seats_party.data() + seats_party.size());
+        return;
+    }
+    else if(seats_party.sum() < numSeats_) { // need to decrease wahlschluessel
+        Eigen::ArrayXd party_keys = waehlerzahlen_partei.array() / (seats_party.array() + 0.5);
+        std::sort(party_keys.begin(), party_keys.end());
+        wahlschluessel = std::round((party_keys(party_keys.size() - 1) + party_keys(party_keys.size() - 2)) / 2); 
+    }
+    else if(seats_party.sum() > numSeats_) { // need to increase wahlschluessel
+        Eigen::ArrayXd party_keys = waehlerzahlen_partei.array() / (seats_party.array() - 0.5);
+        std::sort(party_keys.begin(), party_keys.end());
+        wahlschluessel = std::round((party_keys(0) + party_keys(1)) / 2);
+    }
+
+    seats_party = (waehlerzahlen_partei.array() / wahlschluessel).round();
+    seatDistr_ = std::vector<int>(seats_party.data(), seats_party.data() + seats_party.size());
+
+    for(auto x : seatDistr_) {
+        std::cout << x << " ";
+    }
+    std::cout << "\nUsing Wahlschlüssel: " << wahlschluessel << std::endl;
+    std::cout << "Total seats: " << seats_party.sum() << std::endl;
+    // std::cout << "Oberzuteilung:" << seats_party.transpose() << std::endl << seats_party.sum() << std::endl;
+}
