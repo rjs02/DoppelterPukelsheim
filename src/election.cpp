@@ -24,6 +24,7 @@ election::election(const std::string path, const char delim) {
 
     // read in next lines (votes)
     unsigned rows = 0;
+    numSeats_ = 0;
     while (std::getline(in, line)) {
         std::stringstream lineStream(line);
         std::string dist, seats;
@@ -84,3 +85,4 @@ void election::applyMinQuorum(){
     // update total votes
     totalVotes_ = votes_.sum();
 }
+
