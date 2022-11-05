@@ -2,16 +2,15 @@
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <vector>
+#include "election.hpp"
 
 #define MAX_ITER 10000
+const double INFTY = 1e10;
 
 // ctor, takes path to pivot table in csv format (and delim char), stores data in class members
 election::election(const std::string path, const char delim) {
     using namespace Eigen;
-
-    // construct logger
-    std::string name = "Protokoll_" + name_ + ".txt"; 
-    logger_ = new std::ofstream(name);
 
     std::ifstream in(path);
     std::vector<int> values; // will be converted to data matrix
@@ -22,6 +21,11 @@ election::election(const std::string path, const char delim) {
     std::stringstream lineStream(line);
     std::getline(lineStream, cell, delim); // title (first cell)
     name_ = cell;
+
+    // construct logger
+    std::string name = "Protokoll_" + name_ + ".txt";
+    logger_ = new std::ofstream(name);
+
     std::getline(lineStream, cell, delim); // read which min quora are to be applied
     switch (stoi(cell)) {
         case 0:
@@ -100,7 +104,7 @@ election::~election() {
     delete logger_;
 }
 
-// remove parties that do not meet the minimum quorum (3% in total or 5% in at least one district) // TODO ZH NUR 5% => mit enum?
+// remove parties that do not meet the minimum quorum (3% in total or 5% in at least one district)
 void election::applyMinQuorum(){
     std::vector<bool> minQuorum(numParties_, false);
     
@@ -234,7 +238,7 @@ void election::unterzuteilung() {
 
     constexpr double step = 0.0001; // parteidivisor step size
     
-    Eigen::ArrayXd wahlkreisdivisor(numDistricts_);
+    Eigen::ArrayXd wahlkreisdivisor = Eigen::ArrayXd::Constant(numDistricts_, 1.0);
     Eigen::ArrayXd parteidivisor = Eigen::ArrayXd::Constant(numParties_, 1.0);
     seats_ = Eigen::MatrixXi::Zero(numDistricts_, numParties_);
 
@@ -271,6 +275,9 @@ void election::unterzuteilung() {
                     // calculate divisors for 1 and 2 seat change
                     Eigen::ArrayXd wkd1 = votes_.row(i).cast<double>().array() / parteidivisor.transpose() / (seats_.row(i).cast<double>().array() - 0.5);
                     Eigen::ArrayXd wkd2 = votes_.row(i).cast<double>().array() / parteidivisor.transpose() / (seats_.row(i).cast<double>().array() - 1.5);
+                    // TODO: change negative values in wkd1, wkd2 to +inf
+                    wkd1 = (wkd1 < 0).select(INFTY, wkd1);
+                    wkd2 = (wkd2 < 0).select(INFTY, wkd2);
                     std::sort(wkd1.begin(), wkd1.end());
                     std::sort(wkd2.begin(), wkd2.end());
 
@@ -315,6 +322,9 @@ void election::unterzuteilung() {
                     // calculate divisors for 1 and 2 seat change
                     Eigen::ArrayXd pd1 = votes_.col(j).cast<double>().array() / (seats_.col(j).cast<double>().array() - 0.5) / wahlkreisdivisor;
                     Eigen::ArrayXd pd2 = votes_.col(j).cast<double>().array() / (seats_.col(j).cast<double>().array() - 1.5) / wahlkreisdivisor;
+                    // TODO: change negative values to +inf
+                    pd1 = (pd1 < 0).select(INFTY, pd1);
+                    pd2 = (pd2 < 0).select(INFTY, pd2);
                     std::sort(pd1.begin(), pd1.end());
                     std::sort(pd2.begin(), pd2.end());
 
