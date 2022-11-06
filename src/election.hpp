@@ -1,32 +1,27 @@
 #include <string>
 #include <vector>
-#include <Eigen/Dense>
 #include <fstream>
+#include <Eigen/Dense>
 
-// #pragma once
+
 #ifndef ELECTION_HPP
 #define ELECTION_HPP
 
-class district {
-    public:
+struct district {
     // ctor
-    district(const std::string name, const int seats) : name_(name), seats_(seats) {}
+    district(const std::string name, const int seats = 0) : name_(name), seats_(seats) {}
 
-    // int id_;
-    // int population_;
     std::string name_;
     int seats_; // assinged in input file
 };
 
-class party {
-    public:
+struct party {
     // ctor
     party(const std::string name, const int seats = 0) : name_(name), seats_(seats) {}
 
     std::string name_;
     int seats_; // assinged by Oberzuteilung
 };
-
 
 class election {
     public:
@@ -39,12 +34,9 @@ class election {
     void oberzuteilung();
     void unterzuteilung();
     bool finished();
+    template <typename T>
+    void outputTable(Eigen::Matrix<T, -1, -1> &m, Eigen::ArrayXd &wkd, Eigen::ArrayXd &pd);
 
-    std::string name_;
-    std::vector<district> districts_;
-    // std::vector<std::string> parties_;
-    std::vector<party> parties_;
-    Eigen::MatrixXi votes_;
     enum quorum : char { none = 0, local, total, both };
 
     // getters
@@ -53,22 +45,28 @@ class election {
     int numSeats() const { return numSeats_; }
     int totalVotes() const { return totalVotes_; }
     std::vector<district> districts() const { return districts_; }
-    // std::vector<std::string> parties() const { return parties_; }
     std::vector<party> parties() const { return parties_; }
-    // std::vector<int> seatDistribution() const { return seatDistr_; }
+    
 
     private:
-    int totalVotes_;    // calculated from input file
-    int numSeats_;      // calculated from input file
-    int numDistricts_;  // calculated from input file
-    int numParties_;    // calculated from input file
-    // std::vector<int> seatDistr_;
-    Eigen::MatrixXi seats_; // seats for each party in each district
-    std::ofstream *logger_; // output to log file ("Wahlprotokoll")
-    quorum quorum_;
+    int totalVotes_;                         // calculated from input file
+    int numSeats_;                           // calculated from input file
+    int numDistricts_;                       // calculated from input file
+    int numParties_;                         // calculated from input file
 
-    // double incrWKdivisor();
-    
+    Eigen::MatrixXi votes_;                  // votes per party and district (from input file)
+    Eigen::MatrixXi seats_;                  // seats per party and district (wanted result of program)
+    Eigen::MatrixXd seats_unger_;            // seats per party and district (intermediate result of program) [unrounded]
+
+    std::vector<district> districts_;        // contains election districts
+    std::vector<party> parties_;             // contains party names and seats
+
+    std::ofstream *logger_;                  // output to log file ("Wahlprotokoll")
+    std::string name_;                       // name of election (from input file)
+    quorum quorum_;                          // quorum type
+
+    static constexpr int    maxIter_ = 1000; // hard limit for loop iterations in case sth doesn't converge
+    static constexpr double infty_   = 1e10; // used in ober- and unterzuteilung
 };
 
 #endif // ELECTION_HPP

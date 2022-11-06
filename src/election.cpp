@@ -4,8 +4,8 @@
 #include <vector>
 #include "election.hpp"
 
-#define MAX_ITER 10000
-const double INFTY = 1e10;
+constexpr int    election::maxIter_;
+constexpr double election::infty_;
 
 // ctor, takes path to pivot table in csv format (and delim char), stores data in class members
 election::election(const std::string path, const char delim) {
@@ -14,7 +14,7 @@ election::election(const std::string path, const char delim) {
     std::ifstream in(path);
     std::vector<int> values; // will be converted to data matrix
     std::string line, cell;
-    std::string quorum_msg; // for logger
+    std::string quorum_msg;  // for logger
 
     std::getline(in, line);
     std::stringstream lineStream(line);
@@ -22,35 +22,37 @@ election::election(const std::string path, const char delim) {
     name_ = cell;
 
     // construct logger
-    std::string name = "Protokoll_" + name_ + ".txt";
-    logger_ = new std::ofstream(name);
+    std::string file = "Protokoll_" + name_ + ".md";
+    std::replace(file.begin(), file.end(), ' ', '_');
+    logger_ = new std::ofstream(file);
 
-    std::getline(lineStream, cell, delim); // read which min quora are to be applied
+    // read which min quora are to be applied
+    std::getline(lineStream, cell, delim); 
     switch (stoi(cell)) {
         case 0:
             quorum_ = quorum::none;
-            quorum_msg = "No minimum quorum";
+            quorum_msg = "Kein Quorum.";
             break;
         case 1:
             quorum_ = quorum::local;
-            quorum_msg = "At least 5% of the votes in one district";
+            quorum_msg = "Mindestens 5% der Stimmen in einem Wahlkreis.";
             break;
         case 2:
             quorum_ = quorum::total;
-            quorum_msg = "At least 3% of the votes in total";
+            quorum_msg = "Mindestens 3% der Stimmen insgesamt.";
             break;
         case 3:
             quorum_ = quorum::both;
-            quorum_msg = "At least 5% of the votes in one district OR 3% in total";
+            quorum_msg = "Mindestens 5% der Stimmen in einem Wahlkreis *oder* 3% der Stimmen insgesamt.";
             break;
         default:
-            *logger_ << "Invalid quorum value in file.\n";
+            quorum_ = quorum::none; // default, although input is invalid
+            *logger_ << "Ungültiges Quorum in Datei. Kein Quorum wird angewendet.";
             break;
     }
     
     // read in parties
     while(std::getline(lineStream, cell, delim)) {
-        // parties_.push_back(cell);
         parties_.emplace_back(party(cell));
     }
     numParties_ = parties_.size();
@@ -58,43 +60,43 @@ election::election(const std::string path, const char delim) {
     // read in next lines (votes)
     unsigned rows = 0;
     numSeats_ = 0;
+    std::string dist, seats;
     while (std::getline(in, line)) {
+        // read district name and seats
         std::stringstream lineStream(line);
-        std::string dist, seats;
         std::getline(lineStream, dist, delim);
         std::getline(lineStream, seats, delim);
-        districts_.emplace_back(district(dist, std::stoi(seats)));    // add first two entries two votes vector
+        districts_.emplace_back(district(dist, std::stoi(seats))); 
         numSeats_ += std::stoi(seats);
 
+        // read in votes
         while (std::getline(lineStream, cell, delim)) {
             values.push_back(std::stoi(cell));
         }
         ++rows;
     }
     
-    // delete '\n' or CR (ASCII 13) at end of string of last party
+    // delete '\n' or CR (ASCII 13) at end of string of last party (some invisible character in the input file)
     std::string s = parties_[parties_.size()-1].name_;
     if (!s.empty() && (s[s.length()-1] == '\n' || s[s.length()-1] == (char)13)) {
         s.erase(s.length()-1);
     }
     parties_[parties_.size()-1] = s;
 
+    // store to member variables
     votes_ = Map<Matrix<int, Dynamic, Dynamic, RowMajor>>(values.data(), rows, values.size()/rows);
     numDistricts_ = districts_.size();
     totalVotes_ = votes_.sum();
 
     // init protocol
-    *logger_ << "----------------------\n"
-             << "Protokoll \n"
-             << name_ << "\n"
-             << "----------------------\n\n";
-    
-    *logger_ << "Reading from file: " << path << "\n";
-    *logger_ << "Number of districts: " << numDistricts_ << "\n";
-    *logger_ << "Number of parties: " << numParties_ << "\n";
-    *logger_ << "Number of seats: " << numSeats_ << "\n";
-    *logger_ << "Total votes: " << totalVotes_ << "\n";
-    *logger_ << "Minimum quorum: " << quorum_msg << "\n\n";
+    *logger_ << "# " << name_ << " - Electoral Protocol\n---\n"
+             << "## Input\n"
+             << "* Input aus Datei: `" << path << "`\n"
+             << "* Anzahl Parteien: " << numParties_ << "\n"
+             << "* Anzahl Wahlkreise: " << numDistricts_ << "\n"
+             << "* Anzahl Ratssitze: " << numSeats_ << "\n"
+             << "* Anzahl Parteistimmen: " << totalVotes_ << "\n"
+             << "* Mindestquorum: " << quorum_msg << "\n\n";
 
 }
 
@@ -105,24 +107,33 @@ election::~election() {
 
 // remove parties that do not meet the minimum quorum (3% in total or 5% in at least one district)
 void election::applyMinQuorum(){
-    std::vector<bool> minQuorum(numParties_, false);
-    
+    *logger_ << "## Mindestquorum\n";
+    std::vector<bool> minQuorum(numParties_, false); // true if party meets specified quorum
+    std::vector<bool> localQuorum(numParties_, false);
+
     if(quorum_ & total) { // at least 3% in total
+        *logger_ << "* Folgende Parteien erreichen mind. 3% der Gesamtstimmen: ";
         for(int j = 0; j < numParties_; ++j) {
             minQuorum[j] = votes_.col(j).sum() >= 0.03 * totalVotes_;
+            if(minQuorum[j]) *logger_ << parties_[j].name_ << ", ";
         }
+        *logger_ << "\n";
     }
 
     if(quorum_ & local) { // *OR* 5% in at least 1 district
+        *logger_ << "* Folgende Parteien erreichen mind. 5% der Stimmen in mind. einem Wahlkreis: ";
         for(int i = 0; i < numDistricts_; ++i) {
             for(int j = 0; j < numParties_; ++j) {
-                if(minQuorum[j]) continue;
-                minQuorum[j] = minQuorum[j] || votes_(i, j) >= 0.05 * votes_.row(i).sum();
+                localQuorum[j] = localQuorum[j] || votes_(i,j) >= 0.05 * votes_.row(i).sum();
+                minQuorum[j] = minQuorum[j] || localQuorum[j];
             }
         }
+        for(int j = 0; j < numParties_; ++j) if(minQuorum[j]) *logger_ << parties_[j].name_ << ", ";
+        *logger_ << "\n";
     }
 
     // delete parties that don't meet min quorum
+    // has effect on votes_ and parties_
     for(int j = 0; j < numParties_; ++j) {
         if(!minQuorum[j]) {
             // remove j-th col
@@ -132,39 +143,45 @@ void election::applyMinQuorum(){
             votes_.conservativeResize(numDistricts_, numParties_);
             parties_.erase(parties_.begin() + j);
             minQuorum.erase(minQuorum.begin() + j);
-            --j; // check same index again since everything shifted left
+            --j; // check same index again since everything shifted left!
         }
     }
 
-    // update total votes
+    // update total votes since we removed some parties
     totalVotes_ = votes_.sum();
+
+    *logger_ << "* Neue Anzahl Parteien: " << numParties_ << "\n"
+             << "* Neue Anzahl Parteistimmen: " << totalVotes_ << "\n\n";
 }
 
-// determine the number of seats for each party; german because
+// determine the number of seats for each party
+// stores the result in the party.seats_ member
 void election::oberzuteilung() {
-    *logger_ << "Oberzuteilung\n";
+    *logger_ << "## Oberzuteilung\n";
     Eigen::MatrixXd waehlerzahlen = votes_.cast<double>();
-    double wahlschluessel;
+    double wahlschluessel = 1.0;
 
     // iterate over districts, divide votes by number of seats
+    // to weaken the effect of large districts
     for(int i = 0; i < numDistricts_; ++i) {
         waehlerzahlen.row(i) /= districts_[i].seats_;
     }
 
     Eigen::VectorXd waehlerzahlen_partei = waehlerzahlen.colwise().sum();
     wahlschluessel = waehlerzahlen_partei.sum() / numSeats_;
-    *logger_ << "Provisorischer Wahlschlüssel: " << wahlschluessel << "\n\n";
+    *logger_ << "* Provisorischer Wahlschlüssel: " << wahlschluessel << "\n\n";
     Eigen::ArrayXd seats_party = (waehlerzahlen_partei.array() / wahlschluessel).round();
+    Eigen::ArrayXd seats_party_unger;
 
     // change wahlschluessel if rounded seats don't add up to numSeats_
     int i = 0;
-    for(; seats_party.sum() != numSeats_ && i < MAX_ITER; ++i) { // max MAX_ITER iterations      
+    for(; seats_party.sum() != numSeats_ && i < maxIter_; ++i) {    
         // too many seats => increase wahlschluessel
         if(seats_party.sum() > numSeats_) {
             Eigen::ArrayXd wd1 = waehlerzahlen_partei.array() / (seats_party - 0.5); // wahlschlüssel for -1 seat
             Eigen::ArrayXd wd2 = waehlerzahlen_partei.array() / (seats_party - 1.5); // wahlschlüssel for -2 seats
-            wd1 = (wd1 < 0).select(INFTY, wd1);
-            wd2 = (wd2 < 0).select(INFTY, wd2);
+            wd1 = (wd1 < 0).select(infty_, wd1);
+            wd2 = (wd2 < 0).select(infty_, wd2);
             std::sort(wd1.begin(), wd1.end());
             std::sort(wd2.begin(), wd2.end());
             wahlschluessel = 0.5 * (wd1(0) + std::min(wd1(1), wd2(0)));
@@ -181,94 +198,108 @@ void election::oberzuteilung() {
 
         // recalculate seats
         seats_party = (waehlerzahlen_partei.array() / wahlschluessel);
+        seats_party_unger = seats_party;
         seats_party = seats_party.round();
     }
 
 
     // finished, save and output
+    *logger_ << "* Definitiver Wahlschlüssel: " << wahlschluessel << "\n"
+             << "(" << i << " Iterationen waren erforderlich)\n\n"
+             << "* Zugeteilte Sitze:\n  |  | ";
     for(int j = 0; j < numParties_; ++j) {
         parties_[j].seats_ = seats_party(j);
-        *logger_ << parties_[j].name_ << " ("  << parties_[j].seats_ << ")    ";
+        *logger_ << parties_[j].name_ << " | ";
     }
-
-    *logger_ << "\nDefinitiver Wahlschlüssel: " << wahlschluessel << std::endl;
-    *logger_ << "Total seats: " << seats_party.sum() << std::endl;
-    *logger_ << "Oberzuteilung abgeschlossen\n---------------------------\n\n";
+    std::string sep = "";
+    for(int j = 0; j <= numParties_; ++j) sep += ":---:|";
+    *logger_ << "\n  |" << sep << "\n"
+             << "  | gerundet | ";
+    for(int j = 0; j < numParties_; ++j) {
+        *logger_ << parties_[j].seats_ << " | ";
+    }
+    *logger_ << "\n  | ungerundet | ";
+    for(int j = 0; j < numParties_; ++j) {
+        *logger_ << seats_party_unger(j) << " | ";
+    }
+    *logger_ << "\n\n";
 }
 
-// returns true if procedure is done, every seat is assinged properly
+// returns true if procedure is done, every seat is assigned properly
 bool election::finished() {
+    // init
     bool party = true, district = true, total = false;
+    
     // check total seat count
     total = seats_.sum() == numSeats_;
 
-    // check if every district has the right number of seats
+    // check if every district has the right number of seats (given from input file)
     for(int i = 0; i < numDistricts_; ++i) {
         district = district && districts_[i].seats_ == seats_.row(i).sum();
-        if(districts_[i].seats_ != seats_.row(i).sum()) 
-            *logger_ << "District " << i << " has " << seats_.row(i).sum() << " seats, should have " << districts_[i].seats_ << "\n";
     }
 
-    // check if every party has the right number of seats
+    // check if every party has the right number of seats (determined by oberzuteilung)
     for(int j = 0; j < numParties_; ++j) {
         party = party && parties_[j].seats_ == seats_.col(j).sum();
-        if(parties_[j].seats_ != seats_.col(j).sum()) 
-            *logger_ << "Party " << j << " has " << seats_.col(j).sum() << " seats, should have " << parties_[j].seats_ << "\n";
     }
 
-    bool result = party && district && total;
-    // *logger_ << "--- finished? ---\n"
-    //          << "result: " << result 
-    //          << "\n-----------------\n";
-    if(district) *logger_ << "districts ok\n";
-    if(party) *logger_ << "parties ok\n";
-
-    return result;
+    return party && district && total;
 }
 
-// increase Wahlkreisdivisor in case rounding yields too many seats
-// double election::incrWKdivisor(int i, Eigen::ArrayXd &parteidivisor) {
-    // idea: function returns new WKdivisor for which rounding yields one less total seat than before
-    // formula: result = 0.5 * (wkd_1[0] + min{wkd_1[1], wkd_2[0]}) where wkd_1 is an array of the resp. wahlkreisdivisors for a 
-    // change of 1 seat in total and wkd_2 is the same for a change of 2 seats in total
+// outputs result as markdown table
+template <typename T>
+void election::outputTable(Eigen::Matrix<T, -1, -1> &m, Eigen::ArrayXd &wkd, Eigen::ArrayXd &pd) {
+    // if(!rounded) auto& m = seats_unger_;
+    // else auto& m = seats_;
 
-    // Eigen::ArrayXd wkdiv = wahlkreisdivisor;
-    // std::sort(wkdiv.begin(), wkdiv.end());
-    
-    // calculate divisor for 1 seat change
-    // Eigen::ArrayXd wkd_1 = votes_.row(i).cast<double>() / parteidivisor.transpose() / 
+    std::string sep = "";
+    for(int j = 0; j < numParties_+2; ++j) sep += ":---:|";
+    sep = "|" + sep;
 
-    
-    
-// }
+    *logger_ << "|  | ";
+    for(int j = 0; j < numParties_; ++j) {
+        *logger_ << parties_[j].name_ << " | ";
+    }
+    *logger_ << " Wahlkreisdivisor |\n"
+             << sep << "\n| ";
+
+    for(int i = 0; i < numDistricts_; ++i) {
+        *logger_ << districts_[i].name_ << " | ";
+        for(int j = 0; j < numParties_; ++j) {
+            *logger_ << m(i,j) << " | ";
+        }
+        *logger_ << wkd(i) << " |\n";
+    }
+    *logger_ << "| Parteidivisor | ";
+    for(int j = 0; j < numParties_; ++j) {
+        *logger_ << pd(j) << " | ";
+    }
+    *logger_ << "|\n\n";
+}
 
 
-// ben
+// assigns seats to parties per district
 void election::unterzuteilung() {
-    *logger_ << "\n+----------------------+\n"
-             <<   "|    Unterzuteilung    |\n"
-             <<   "+----------------------+\n\n";
+    *logger_ << "## Unterzuteilung\n";
 
-    constexpr double step = 0.0001; // parteidivisor step size
-    
+    // init
     Eigen::ArrayXd wahlkreisdivisor = Eigen::ArrayXd::Constant(numDistricts_, 1.0);
     Eigen::ArrayXd parteidivisor = Eigen::ArrayXd::Constant(numParties_, 1.0);
+    Eigen::ArrayXd sitze_unger = Eigen::ArrayXd::Constant(numParties_, 0.0);
     seats_ = Eigen::MatrixXi::Zero(numDistricts_, numParties_);
+    seats_unger_ = seats_.cast<double>();
 
     int iter = 0; // iteration counter
-    for(; !finished() && iter < 20; ++iter) { // TODO: CHANGE BACK TO MAX_ITER
-        *logger_ << "\n\nIteration " << iter << "\n";
-        Eigen::ArrayXd sitze_unger;
+    for(; !finished() && iter < maxIter_; ++iter) {
 
         int i = 0; // district index
         for(; i < numDistricts_; ++i) {
             wahlkreisdivisor(i) = votes_.row(i).cast<double>().sum() / districts_[i].seats_;
-            sitze_unger = (votes_.row(i).cast<double>().array() / parteidivisor.transpose() / wahlkreisdivisor(i)).array(); // wtf is dis lol
-            *logger_ << "WK " << i << " sitze_unger: " << sitze_unger.transpose() << "\n";
+            seats_unger_.row(i) = (votes_.row(i).cast<double>().array() / parteidivisor.transpose() / wahlkreisdivisor(i)).array(); // wtf is dis lol
             seats_.row(i) = sitze_unger.round().cast<int>(); 
             
             int iter_district = 0; // district iteration counter
-            for(; seats_.row(i).sum() != districts_[i].seats_ && iter_district < MAX_ITER; ++iter_district) {
+            for(; seats_.row(i).sum() != districts_[i].seats_ && iter_district < maxIter_; ++iter_district) {
                 if(seats_.row(i).sum() == districts_[i].seats_) { // rounding worked, number agrees with numSeats_
                     break;
                 }
@@ -289,8 +320,8 @@ void election::unterzuteilung() {
                     Eigen::ArrayXd wkd1 = votes_.row(i).cast<double>().array() / parteidivisor.transpose() / (seats_.row(i).cast<double>().array() - 0.5);
                     Eigen::ArrayXd wkd2 = votes_.row(i).cast<double>().array() / parteidivisor.transpose() / (seats_.row(i).cast<double>().array() - 1.5);
                     // TODO: change negative values in wkd1, wkd2 to +inf
-                    wkd1 = (wkd1 < 0).select(INFTY, wkd1);
-                    wkd2 = (wkd2 < 0).select(INFTY, wkd2);
+                    wkd1 = (wkd1 < 0).select(infty_, wkd1);
+                    wkd2 = (wkd2 < 0).select(infty_, wkd2);
                     std::sort(wkd1.begin(), wkd1.end());
                     std::sort(wkd2.begin(), wkd2.end());
 
@@ -301,21 +332,20 @@ void election::unterzuteilung() {
                 // recalculate seats
                 // seats_.row(i) = (votes_.cast<double>().row(i) / wahlkreisdivisor(i)).array().round().cast<int>();
                 // seats_.row(i) = (votes_.row(i).cast<double>().array() / parteidivisor.transpose() / wahlkreisdivisor(i)).array().round().cast<int>();
-                sitze_unger = (votes_.row(i).cast<double>().array() / parteidivisor.transpose() / wahlkreisdivisor(i)).array(); // wtf is dis lol
-                *logger_ << "WK " << i << " sitze_unger: " << sitze_unger.transpose() << "\n";
-                seats_.row(i) = sitze_unger.round().cast<int>(); 
+                seats_unger_.row(i) = (votes_.row(i).cast<double>().array() / parteidivisor.transpose() / wahlkreisdivisor(i)).array(); // wtf is dis lol
+                // seats_unger_.row(i) = sitze_unger;
+                seats_.row(i) = seats_unger_.row(i).array().round().cast<int>(); 
             }
-            *logger_ << "District " << i << " finished after " << iter_district << " iterations\n";
         }
-        *logger_ << "\n\nWahlkreisdivisor: " << wahlkreisdivisor.transpose() << "\n\n";
-        *logger_ << seats_ << std::endl;
+        // *logger_ << "\n\nWahlkreisdivisor: " << wahlkreisdivisor.transpose() << "\n\n";
+        // *logger_ << seats_ << std::endl;
 
         if(finished()) break;
 
         int j = 0; // party index
         for(; j < numParties_; ++j) {
             int iter_party = 0; // party iteration counter
-            for(; seats_.col(j).sum() != parties_[j].seats_ && iter_party < MAX_ITER; ++iter_party) {
+            for(; seats_.col(j).sum() != parties_[j].seats_ && iter_party < maxIter_; ++iter_party) {
                 if(seats_.col(j).sum() == parties_[j].seats_) { // rounding worked, number agrees with numSeats_
                     break;
                 }
@@ -336,8 +366,8 @@ void election::unterzuteilung() {
                     Eigen::ArrayXd pd1 = votes_.col(j).cast<double>().array() / (seats_.col(j).cast<double>().array() - 0.5) / wahlkreisdivisor;
                     Eigen::ArrayXd pd2 = votes_.col(j).cast<double>().array() / (seats_.col(j).cast<double>().array() - 1.5) / wahlkreisdivisor;
                     // TODO: change negative values to +inf
-                    pd1 = (pd1 < 0).select(INFTY, pd1);
-                    pd2 = (pd2 < 0).select(INFTY, pd2);
+                    pd1 = (pd1 < 0).select(infty_, pd1);
+                    pd2 = (pd2 < 0).select(infty_, pd2);
                     std::sort(pd1.begin(), pd1.end());
                     std::sort(pd2.begin(), pd2.end());
 
@@ -346,18 +376,22 @@ void election::unterzuteilung() {
                 }
 
                 // recalculate seats
-                sitze_unger = (votes_.col(j).cast<double>().array() / wahlkreisdivisor / parteidivisor(j)).array();
-                *logger_ << "Party " << j << " sitze_unger: " << sitze_unger.transpose() << "\n";
-                seats_.col(j) = sitze_unger.round().cast<int>();
+                seats_unger_.col(j) = (votes_.col(j).cast<double>().array() / wahlkreisdivisor / parteidivisor(j)).array();
+                // *logger_ << "Party " << j << " sitze_unger: " << sitze_unger.transpose() << "\n";
+                seats_.col(j) = seats_unger_.col(j).array().round().cast<int>();
             }
-            *logger_ << "Party " << j << " finished after " << iter_party << " iterations\n";
+            // *logger_ << "Party " << j << " finished after " << iter_party << " iterations\n";
         }
-        *logger_ << "\n\nParteidivisor: " << parteidivisor.transpose() << "\n\n";
-        *logger_ << seats_ << std::endl;
+        // *logger_ << "\n\nParteidivisor: " << parteidivisor.transpose() << "\n\n";
+        // *logger_ << seats_ << std::endl;
 
     }
-    *logger_ << "\nouter loop took " << iter << " iterations\n";
-    *logger_ << "\n\n\n" << seats_.transpose() << "\n\n" << seats_.sum() << std::endl;
-    *logger_ << "district sums: " << seats_.rowwise().sum().transpose() << std::endl;
-    *logger_ << "party sums: " << seats_.colwise().sum() << std::endl;
+    *logger_ << "\nouter loop took " << iter << " iterations\n\n";
+
+    // *logger_ << "\n\n" << seats_ 
+    //         << "\n\n" << seats_unger_
+    //         << "\n\nParteidivisoren: " << parteidivisor.transpose()
+    //         << "\n\nWahlkreisdivisoren: " << wahlkreisdivisor.transpose() << "\n\n";
+    outputTable(seats_, wahlkreisdivisor, parteidivisor);
+    outputTable(seats_unger_, wahlkreisdivisor, parteidivisor);
 }
