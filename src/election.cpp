@@ -1,4 +1,3 @@
-// #include "election.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -161,10 +160,24 @@ void election::oberzuteilung() {
     int i = 0;
     for(; seats_party.sum() != numSeats_ && i < MAX_ITER; ++i) { // max MAX_ITER iterations      
         // too many seats => increase wahlschluessel
-        if(seats_party.sum() > numSeats_) ++wahlschluessel;
+        if(seats_party.sum() > numSeats_) {
+            Eigen::ArrayXd wd1 = waehlerzahlen_partei.array() / (seats_party - 0.5); // wahlschlüssel for -1 seat
+            Eigen::ArrayXd wd2 = waehlerzahlen_partei.array() / (seats_party - 1.5); // wahlschlüssel for -2 seats
+            wd1 = (wd1 < 0).select(INFTY, wd1);
+            wd2 = (wd2 < 0).select(INFTY, wd2);
+            std::sort(wd1.begin(), wd1.end());
+            std::sort(wd2.begin(), wd2.end());
+            wahlschluessel = 0.5 * (wd1(0) + std::min(wd1(1), wd2(0)));
+        }
 
         // too few seats => decrease wahlschluessel
-        else if(seats_party.sum() < numSeats_) --wahlschluessel;
+        else if(seats_party.sum() < numSeats_) {
+            Eigen::ArrayXd wd1 = waehlerzahlen_partei.array() / (seats_party + 0.5); // wahlschlüssel for +1 seat
+            Eigen::ArrayXd wd2 = waehlerzahlen_partei.array() / (seats_party + 1.5); // wahlschlüssel for +2 seats
+            std::sort(wd1.begin(), wd1.end(), std::greater<double>());
+            std::sort(wd2.begin(), wd2.end(), std::greater<double>());
+            wahlschluessel = 0.5 * (wd1(0) + std::max(wd1(1), wd2(0)));
+        }
 
         // recalculate seats
         seats_party = (waehlerzahlen_partei.array() / wahlschluessel);
