@@ -89,7 +89,7 @@ election::election(const std::string path, const char delim) {
     totalVotes_ = votes_.sum();
 
     // init protocol
-    *logger_ << "# " << name_ << " - Electoral Protocol\n---\n"
+    *logger_ << "# " << name_ << " - Electoral Protocol\n"
              << "## Input\n"
              << "* Input aus Datei: `" << path << "`\n"
              << "* Anzahl Parteien: " << numParties_ << "\n"
@@ -205,8 +205,8 @@ void election::oberzuteilung() {
 
     // finished, save and output
     *logger_ << "* Definitiver Wahlschlüssel: " << wahlschluessel << "\n"
-             << "(" << i << " Iterationen waren erforderlich)\n\n"
-             << "* Zugeteilte Sitze:\n  |  | ";
+             << "* Konvergierte in " << i << " Iterationen.\n\n"
+             << "### Zugeteilte Sitze:\n  |  | ";
     for(int j = 0; j < numParties_; ++j) {
         parties_[j].seats_ = seats_party(j);
         *logger_ << parties_[j].name_ << " | ";
@@ -220,7 +220,7 @@ void election::oberzuteilung() {
     }
     *logger_ << "\n  | ungerundet | ";
     for(int j = 0; j < numParties_; ++j) {
-        *logger_ << seats_party_unger(j) << " | ";
+        *logger_ << std::round(1000 * seats_party_unger(j)) / 1000.0 << " | ";
     }
     *logger_ << "\n\n";
 }
@@ -266,13 +266,13 @@ void election::outputTable(Eigen::Matrix<T, -1, -1> &m, Eigen::ArrayXd &wkd, Eig
     for(int i = 0; i < numDistricts_; ++i) {
         *logger_ << districts_[i].name_ << " | ";
         for(int j = 0; j < numParties_; ++j) {
-            *logger_ << m(i,j) << " | ";
+            *logger_ << std::round(m(i,j) * 1000) / 1000.0 << " | ";
         }
-        *logger_ << wkd(i) << " |\n";
+        *logger_ << std::round(wkd(i) * 10) / 10.0 << " |\n";
     }
     *logger_ << "| Parteidivisor | ";
     for(int j = 0; j < numParties_; ++j) {
-        *logger_ << pd(j) << " | ";
+        *logger_ << std::round(pd(j) * 1000) / 1000.0 << " | ";
     }
     *logger_ << "|\n\n";
 }
@@ -386,12 +386,42 @@ void election::unterzuteilung() {
         // *logger_ << seats_ << std::endl;
 
     }
-    *logger_ << "\nouter loop took " << iter << " iterations\n\n";
+    *logger_ << "Konvergierte in " << iter << " Iterationen.\n\n";
 
     // *logger_ << "\n\n" << seats_ 
     //         << "\n\n" << seats_unger_
     //         << "\n\nParteidivisoren: " << parteidivisor.transpose()
     //         << "\n\nWahlkreisdivisoren: " << wahlkreisdivisor.transpose() << "\n\n";
+    *logger_ << "### Gerundet: \n";
     outputTable(seats_, wahlkreisdivisor, parteidivisor);
+    *logger_ << "\n### Ungerundet: \n";
     outputTable(seats_unger_, wahlkreisdivisor, parteidivisor);
+}
+
+void election::exportResults() {
+    // std::string name = name_;
+    // std::replace(name.begin(), name.end(), ' ', '_');
+    std::ofstream out("out/data.out");
+
+    for(int j = 0; j < numParties_; ++j) out << parties_[j].name_ << ";";
+    out << "\n";
+    for(int i = 0; i < numDistricts_; ++i) out << districts_[i].name_ << ";";
+    out << "\n";
+    for(int i = 0; i < numDistricts_; ++i) {
+        for(int j = 0; j < numParties_; ++j) {
+            out << votes_(i, j) << ";";
+        }
+    }
+    out << "\n";
+    for(int i = 0; i < numDistricts_; ++i) {
+        for(int j = 0; j < numParties_; ++j) {
+            out << seats_(i, j) << ";";
+        }
+    }
+    out << "\n";
+    for(int i = 0; i < numDistricts_; ++i) {
+        for(int j = 0; j < numParties_; ++j) {
+            out << seats_unger_(i, j) << ";";
+        }
+    }
 }

@@ -34,8 +34,7 @@ class election {
     void oberzuteilung();
     void unterzuteilung();
     bool finished();
-    template <typename T>
-    void outputTable(Eigen::Matrix<T, -1, -1> &m, Eigen::ArrayXd &wkd, Eigen::ArrayXd &pd);
+    void exportResults();
 
     enum quorum : char { none = 0, local, total, both };
 
@@ -67,6 +66,9 @@ class election {
 
     static constexpr int    maxIter_ = 1000; // hard limit for loop iterations in case sth doesn't converge
     static constexpr double infty_   = 1e10; // used in ober- and unterzuteilung
+    
+    template <typename T>
+    void outputTable(Eigen::Matrix<T, -1, -1> &m, Eigen::ArrayXd &wkd, Eigen::ArrayXd &pd);
 };
 
 #endif // ELECTION_HPP
