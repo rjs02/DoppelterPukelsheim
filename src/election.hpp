@@ -30,11 +30,11 @@ class election {
     // dtor
     ~election();
 
-    void applyMinQuorum();
-    void oberzuteilung();
-    void unterzuteilung();
-    bool finished();
-    void exportResults();
+    void applyMinQuorum();                   // applies minimum quorum
+    void oberzuteilung();                    // performs Oberzuteilung
+    void unterzuteilung();                   // performs Unterzuteilung
+    bool finished();                         // returns true if all seats are assigned correctly subject to constraints
+    void exportResults();                    // exports results compactly to plot
 
     enum quorum : char { none = 0, local, total, both };
 
@@ -54,6 +54,7 @@ class election {
     int numParties_;                         // calculated from input file
 
     Eigen::MatrixXi votes_;                  // votes per party and district (from input file)
+    Eigen::MatrixXi votes_original_;         // votes matrix before applying quora (from input file, only used to output for analysis purposes)
     Eigen::MatrixXi seats_;                  // seats per party and district (wanted result of program)
     Eigen::MatrixXd seats_unger_;            // seats per party and district (intermediate result of program) [unrounded]
 

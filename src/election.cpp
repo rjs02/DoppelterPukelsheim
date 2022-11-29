@@ -85,6 +85,7 @@ election::election(const std::string path, const char delim) {
 
     // store to member variables
     votes_ = Map<Matrix<int, Dynamic, Dynamic, RowMajor>>(values.data(), rows, values.size()/rows);
+    votes_original_ = votes_;
     numDistricts_ = districts_.size();
     totalVotes_ = votes_.sum();
 
@@ -284,12 +285,12 @@ void election::unterzuteilung() {
 
     // init
     Eigen::ArrayXd wahlkreisdivisor = Eigen::ArrayXd::Constant(numDistricts_, 1.0);
-    Eigen::ArrayXd parteidivisor = Eigen::ArrayXd::Constant(numParties_, 1.0);
-    Eigen::ArrayXd sitze_unger = Eigen::ArrayXd::Constant(numParties_, 0.0);
+    Eigen::ArrayXd parteidivisor    = Eigen::ArrayXd::Constant(numParties_, 1.0);
+    Eigen::ArrayXd sitze_unger      = Eigen::ArrayXd::Constant(numParties_, 0.0);
     seats_ = Eigen::MatrixXi::Zero(numDistricts_, numParties_);
     seats_unger_ = seats_.cast<double>();
 
-    int iter = 0; // iteration counter
+    int iter = 1; // iteration counter
     for(; !finished() && iter < maxIter_; ++iter) {
 
         int i = 0; // district index
@@ -300,45 +301,32 @@ void election::unterzuteilung() {
             
             int iter_district = 0; // district iteration counter
             for(; seats_.row(i).sum() != districts_[i].seats_ && iter_district < maxIter_; ++iter_district) {
-                if(seats_.row(i).sum() == districts_[i].seats_) { // rounding worked, number agrees with numSeats_
-                    break;
-                }
-                else if(seats_.row(i).sum() < districts_[i].seats_) { // need to decrease wahlkreisdivisor
-                    // wahlkreisdivisor(i) -= 2;
+                
+                if(seats_.row(i).sum() < districts_[i].seats_) { // need to decrease wahlkreisdivisor
                     // calculate divisors for 1 and 2 seat change
                     Eigen::ArrayXd wkd1 = votes_.row(i).cast<double>().array() / parteidivisor.transpose() / (seats_.row(i).cast<double>().array() + 0.5);
                     Eigen::ArrayXd wkd2 = votes_.row(i).cast<double>().array() / parteidivisor.transpose() / (seats_.row(i).cast<double>().array() + 1.5);
                     std::sort(wkd1.begin(), wkd1.end(), std::greater<double>()); 
                     std::sort(wkd2.begin(), wkd2.end(), std::greater<double>());
-
                     wahlkreisdivisor(i) = 0.5 * (wkd1(0) + std::max(wkd1(1), wkd2(0)));
-                    // wahlkreisdivisor(i) = 0.5 * (wkd1(0) + wkd1(1));
                 }
+
                 else if(seats_.row(i).sum() > districts_[i].seats_) { // need to increase wahlkreisdivisor
-                    // ++wahlkreisdivisor(i) += 2;
                     // calculate divisors for 1 and 2 seat change
                     Eigen::ArrayXd wkd1 = votes_.row(i).cast<double>().array() / parteidivisor.transpose() / (seats_.row(i).cast<double>().array() - 0.5);
                     Eigen::ArrayXd wkd2 = votes_.row(i).cast<double>().array() / parteidivisor.transpose() / (seats_.row(i).cast<double>().array() - 1.5);
-                    // TODO: change negative values in wkd1, wkd2 to +inf
                     wkd1 = (wkd1 < 0).select(infty_, wkd1);
                     wkd2 = (wkd2 < 0).select(infty_, wkd2);
                     std::sort(wkd1.begin(), wkd1.end());
                     std::sort(wkd2.begin(), wkd2.end());
-
                     wahlkreisdivisor(i) = 0.5 * (wkd1(0) + std::min(wkd1(1), wkd2(0)));
-                    // wahlkreisdivisor(i) = 0.5 * (wkd1(0) + wkd1(1));
                 }
 
                 // recalculate seats
-                // seats_.row(i) = (votes_.cast<double>().row(i) / wahlkreisdivisor(i)).array().round().cast<int>();
-                // seats_.row(i) = (votes_.row(i).cast<double>().array() / parteidivisor.transpose() / wahlkreisdivisor(i)).array().round().cast<int>();
                 seats_unger_.row(i) = (votes_.row(i).cast<double>().array() / parteidivisor.transpose() / wahlkreisdivisor(i)).array(); // wtf is dis lol
-                // seats_unger_.row(i) = sitze_unger;
                 seats_.row(i) = seats_unger_.row(i).array().round().cast<int>(); 
             }
         }
-        // *logger_ << "\n\nWahlkreisdivisor: " << wahlkreisdivisor.transpose() << "\n\n";
-        // *logger_ << seats_ << std::endl;
 
         if(finished()) break;
 
@@ -346,52 +334,36 @@ void election::unterzuteilung() {
         for(; j < numParties_; ++j) {
             int iter_party = 0; // party iteration counter
             for(; seats_.col(j).sum() != parties_[j].seats_ && iter_party < maxIter_; ++iter_party) {
-                if(seats_.col(j).sum() == parties_[j].seats_) { // rounding worked, number agrees with numSeats_
-                    break;
-                }
-                else if(seats_.col(j).sum() < parties_[j].seats_) { // need to decrease parteidivisor
-                    // parteidivisor(j) -= step;
+
+                if(seats_.col(j).sum() < parties_[j].seats_) { // need to decrease parteidivisor
                     // calculate divisors for 1 and 2 seat change
                     Eigen::ArrayXd pd1 = votes_.col(j).cast<double>().array() / (seats_.col(j).cast<double>().array() + 0.5) / wahlkreisdivisor;
                     Eigen::ArrayXd pd2 = votes_.col(j).cast<double>().array() / (seats_.col(j).cast<double>().array() + 1.5) / wahlkreisdivisor;
                     std::sort(pd1.begin(), pd1.end(), std::greater<double>());
                     std::sort(pd2.begin(), pd2.end(), std::greater<double>());
-
                     parteidivisor(j) = 0.5 * (pd1(0) + std::max(pd1(1), pd2(0)));
-                    // parteidivisor(j) = 0.5 * (pd1(0) + pd1(1));
                 }
+
                 else if(seats_.col(j).sum() > parties_[j].seats_) { // need to increase parteidivisor
-                    // parteidivisor(j) += step;
                     // calculate divisors for 1 and 2 seat change
                     Eigen::ArrayXd pd1 = votes_.col(j).cast<double>().array() / (seats_.col(j).cast<double>().array() - 0.5) / wahlkreisdivisor;
                     Eigen::ArrayXd pd2 = votes_.col(j).cast<double>().array() / (seats_.col(j).cast<double>().array() - 1.5) / wahlkreisdivisor;
-                    // TODO: change negative values to +inf
                     pd1 = (pd1 < 0).select(infty_, pd1);
                     pd2 = (pd2 < 0).select(infty_, pd2);
                     std::sort(pd1.begin(), pd1.end());
                     std::sort(pd2.begin(), pd2.end());
-
                     parteidivisor(j) = 0.5 * (pd1(0) + std::min(pd1(1), pd2(0)));
-                    // parteidivisor(j) = 0.5 * (pd1(0) + pd1(1));
                 }
 
                 // recalculate seats
                 seats_unger_.col(j) = (votes_.col(j).cast<double>().array() / wahlkreisdivisor / parteidivisor(j)).array();
-                // *logger_ << "Party " << j << " sitze_unger: " << sitze_unger.transpose() << "\n";
                 seats_.col(j) = seats_unger_.col(j).array().round().cast<int>();
             }
-            // *logger_ << "Party " << j << " finished after " << iter_party << " iterations\n";
         }
-        // *logger_ << "\n\nParteidivisor: " << parteidivisor.transpose() << "\n\n";
-        // *logger_ << seats_ << std::endl;
-
     }
     *logger_ << "Konvergierte in " << iter << " Iterationen.\n\n";
 
-    // *logger_ << "\n\n" << seats_ 
-    //         << "\n\n" << seats_unger_
-    //         << "\n\nParteidivisoren: " << parteidivisor.transpose()
-    //         << "\n\nWahlkreisdivisoren: " << wahlkreisdivisor.transpose() << "\n\n";
+    // output as markdown table
     *logger_ << "### Gerundet: \n";
     outputTable(seats_, wahlkreisdivisor, parteidivisor);
     *logger_ << "\n### Ungerundet: \n";
@@ -399,26 +371,28 @@ void election::unterzuteilung() {
 }
 
 void election::exportResults() {
-    // std::string name = name_;
-    // std::replace(name.begin(), name.end(), ' ', '_');
     std::ofstream out("out/data.out");
-
+    // parties
     for(int j = 0; j < numParties_; ++j) out << parties_[j].name_ << ";";
     out << "\n";
+    // districts
     for(int i = 0; i < numDistricts_; ++i) out << districts_[i].name_ << ";";
     out << "\n";
+    // votes (row major)
     for(int i = 0; i < numDistricts_; ++i) {
         for(int j = 0; j < numParties_; ++j) {
             out << votes_(i, j) << ";";
         }
     }
     out << "\n";
+    // seats (row major)
     for(int i = 0; i < numDistricts_; ++i) {
         for(int j = 0; j < numParties_; ++j) {
             out << seats_(i, j) << ";";
         }
     }
     out << "\n";
+    // seats unrounded (row major)
     for(int i = 0; i < numDistricts_; ++i) {
         for(int j = 0; j < numParties_; ++j) {
             out << seats_unger_(i, j) << ";";
