@@ -370,7 +370,7 @@ void election::unterzuteilung() {
 }
 
 void election::exportResults() {
-    std::ofstream out("out/data.out");
+    std::ofstream out("data.out");
     // parties
     for(int j = 0; j < numParties_; ++j) out << parties_[j].name_ << ";";
     out << "\n";
