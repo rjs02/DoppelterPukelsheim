@@ -135,7 +135,7 @@ void election::applyMinQuorum(){
 
     // delete parties that don't meet min quorum
     // has effect on votes_ and parties_
-    for(int j = 0; j < numParties_; ++j) {
+    for(int j = 0; j < numParties_ && quorum_ > 0; ++j) { // dont remove anything if quorum_ == 0
         if(!minQuorum[j]) {
             // remove j-th col
             numParties_--; // update numParties_ (globally)
@@ -171,8 +171,8 @@ void election::oberzuteilung() {
     Eigen::VectorXd waehlerzahlen_partei = waehlerzahlen.colwise().sum();
     wahlschluessel = waehlerzahlen_partei.sum() / numSeats_;
     *logger_ << "* Provisorischer Wahlschlüssel: " << wahlschluessel << "\n\n";
-    Eigen::ArrayXd seats_party = (waehlerzahlen_partei.array() / wahlschluessel).round();
-    Eigen::ArrayXd seats_party_unger;
+    Eigen::ArrayXd seats_party_unger = (waehlerzahlen_partei.array() / wahlschluessel);
+    Eigen::ArrayXd seats_party = seats_party_unger.round();
 
     // change wahlschluessel if rounded seats don't add up to numSeats_
     int i = 0;
@@ -198,15 +198,14 @@ void election::oberzuteilung() {
         }
 
         // recalculate seats
-        seats_party = (waehlerzahlen_partei.array() / wahlschluessel);
-        seats_party_unger = seats_party;
-        seats_party = seats_party.round();
+        seats_party_unger = (waehlerzahlen_partei.array() / wahlschluessel);
+        seats_party = seats_party_unger.round();
     }
 
 
     // finished, save and output
     *logger_ << "* Definitiver Wahlschlüssel: " << wahlschluessel << "\n"
-             << "* Konvergierte in " << i << " Iterationen.\n\n"
+             << "* Konvergierte in " << i+1 << " Iterationen.\n\n"
              << "### Zugeteilte Sitze:\n  |  | ";
     for(int j = 0; j < numParties_; ++j) {
         parties_[j].seats_ = seats_party(j);
@@ -361,7 +360,7 @@ void election::unterzuteilung() {
             }
         }
     }
-    *logger_ << "Konvergierte in " << iter << " Iterationen.\n\n";
+    *logger_ << "Konvergierte in " << iter+1 << " Iterationen.\n\n";
 
     // output as markdown table
     *logger_ << "### Gerundet: \n";
